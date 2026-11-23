@@ -122,6 +122,57 @@ def toolchain_identity(toolchain: Path, host_tools: dict[str, Path]) -> dict[str
     }
 
 
+def module_include_dirs(
+    manifest: dict[str, Any], roots: dict[str, Path],
+) -> list[tuple[str, Path]]:
+    build = manifest.get("build", {})
+    includes: list[tuple[str, Path]] = []
+    for item in build.get("include_dirs", []):
+        root = item["root"]
+        if root not in roots:
+            raise PipelineError(f"unknown include root: {root}")
+        base = roots[root] / ("vendor" if root == "vendor" else "")
+        include = (base / item["path"]).resolve()
+        if not include.is_dir():
+            raise PipelineError(f"include directory does not exist: {include}")
+        includes.append((root, include))
+    for entry in build.get("include_globs", []):
+        if isinstance(entry, str):
+            root, pattern = "vendor", entry
+        elif isinstance(entry, dict):
+            root = entry.get("root")
+            pattern = entry.get("pattern")
+        else:
+            raise PipelineError(f"invalid include glob entry: {entry!r}")
+        if root not in roots or not isinstance(pattern, str) or not pattern:
+            raise PipelineError(f"invalid include glob entry: {entry!r}")
+        base = roots[root] / ("vendor" if root == "vendor" else "")
+        includes.extend(
+            (root, directory.resolve())
+            for directory in sorted(base.glob(pattern))
+            if directory.is_dir() and directory.resolve().is_relative_to(base.resolve())
+        )
+    return includes
+
+
+def module_kcflags(
+    manifest: dict[str, Any], roots: dict[str, Path], kernel_flags: str, output: Path,
+) -> str:
+    include_flags = [f"-I{directory}" for _, directory in module_include_dirs(manifest, roots)]
+    flags = [*dict.fromkeys(include_flags), *shlex.split(kernel_flags)]
+    response = output / "build-flags/module-kcflags.rsp"
+    response.parent.mkdir(parents=True, exist_ok=True)
+    lines = []
+    for argument in flags:
+        if any(character.isspace() or character in '\\"' for character in argument):
+            argument = '"' + argument.replace("\\", "\\\\").replace('"', '\\"') + '"'
+        lines.append(argument)
+    content = "\n".join(lines) + "\n"
+    if not response.is_file() or response.read_text() != content:
+        response.write_text(content)
+    return f"@{response}"
+
+
 def build_environment(
     manifest: dict[str, Any],
     roots: dict[str, Path],
@@ -173,53 +224,8 @@ def build_environment(
         output = output.expanduser().resolve()
         for option in ("-ffile-prefix-map", "-fdebug-prefix-map", "-fmacro-prefix-map"):
             path_maps.append(f"{option}={output}=/build/out")
-    include_flags: list[str] = []
-    for item in build.get("include_dirs", []):
-        root = item["root"]
-        if root not in roots:
-            raise PipelineError(f"unknown include root: {root}")
-        base = roots[root] / ("vendor" if root == "vendor" else "")
-        include = (base / item["path"]).resolve()
-        if not include.is_dir():
-            raise PipelineError(f"include directory does not exist: {include}")
-        include_flags.append(f"-I{include}")
-    for entry in build.get("include_globs", []):
-        if isinstance(entry, str):
-            root, pattern = "vendor", entry
-        elif isinstance(entry, dict):
-            root = entry.get("root")
-            pattern = entry.get("pattern")
-        else:
-            raise PipelineError(f"invalid include glob entry: {entry!r}")
-        if root not in roots or not isinstance(pattern, str) or not pattern:
-            raise PipelineError(f"invalid include glob entry: {entry!r}")
-        base = roots[root] / ("vendor" if root == "vendor" else "")
-        include_flags.extend(
-            f"-I{directory.resolve()}"
-            for directory in sorted(base.glob(pattern))
-            if directory.is_dir() and directory.resolve().is_relative_to(base.resolve())
-        )
     kernel_flags = list(dict.fromkeys(path_maps + build.get("kcflags", [])))
-    module_flags = list(dict.fromkeys(path_maps + include_flags + build.get("kcflags", [])))
-
-    def encode_flags(flags: list[str], response_name: str) -> str:
-        if output is None:
-            return " ".join(flags)
-        response = output.expanduser().resolve() / "build-flags" / response_name
-        response.parent.mkdir(parents=True, exist_ok=True)
-        arguments = shlex.split(" ".join(flags))
-        lines = []
-        for argument in arguments:
-            if any(character.isspace() or character in '\\"' for character in argument):
-                argument = '"' + argument.replace("\\", "\\\\").replace('"', '\\"') + '"'
-            lines.append(argument)
-        content = "\n".join(lines) + "\n"
-        if not response.is_file() or response.read_text() != content:
-            response.write_text(content)
-        return f"@{response}"
-
     env["KCFLAGS"] = " ".join(kernel_flags)
-    env["MODULE_KCFLAGS"] = encode_flags(module_flags, "module-kcflags.rsp")
     env["KAFLAGS"] = " ".join(path_maps + build.get("kaflags", []))
     return env
 

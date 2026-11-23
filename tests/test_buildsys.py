@@ -19,6 +19,7 @@ from buildsys.modules import (
     _apply_source_patches,
     _external_command,
     _finalize_kernel_modules,
+    _group_id,
     _kernel_module,
     _selected_symvers,
     _affected_consumers,
@@ -30,6 +31,7 @@ from buildsys.modules import (
     _source_patch_overlay_flags,
     _source_view,
     _write_source_patch_overlay,
+    build_modules,
 )
 from buildsys.pipeline import (
     _check_identity,
@@ -39,7 +41,7 @@ from buildsys.pipeline import (
     parser,
 )
 from buildsys.toolchain import configure_kernel, prepare_kernel, source_state
-from buildsys.toolchain import build_environment
+from buildsys.toolchain import build_environment, module_kcflags
 
 
 class BuildPlanTests(unittest.TestCase):
@@ -381,7 +383,7 @@ class BuildPlanTests(unittest.TestCase):
             manifest, self.roots, self.root / "llvm/bin", None, output
         )
 
-        response = Path(env["MODULE_KCFLAGS"][1:])
+        response = Path(module_kcflags(manifest, self.roots, env["KCFLAGS"], output)[1:])
         self.assertEqual(response, output / "build-flags/module-kcflags.rsp")
         self.assertIn(f"-I{include}", response.read_text().splitlines())
         self.assertNotIn(f"-I{include}", env["KCFLAGS"])
@@ -389,15 +391,56 @@ class BuildPlanTests(unittest.TestCase):
     def test_response_file_preserves_multi_token_kcflags(self) -> None:
         manifest = {
             "target": {"arch": "arm64"},
-            "build": {"kcflags": ["-include include/legacy.h"]},
+            "build": {"kcflags": ["-include include/first.h", "-include include/legacy.h"]},
         }
 
         env = build_environment(
             manifest, self.roots, self.root / "llvm/bin", None, self.root / "out"
         )
 
-        arguments = shlex.split(Path(env["MODULE_KCFLAGS"][1:]).read_text())
-        self.assertEqual(arguments[-2:], ["-include", "include/legacy.h"])
+        flags = module_kcflags(manifest, self.roots, env["KCFLAGS"], self.root / "out")
+        arguments = shlex.split(Path(flags[1:]).read_text())
+        self.assertEqual(arguments[-4:], ["-include", "include/first.h", "-include", "include/legacy.h"])
+
+    def test_external_module_includes_remapped_headers_from_flat_checkouts(self) -> None:
+        msm_include = self.roots["msm"] / "include"
+        msm_include.mkdir()
+        raw_link = msm_include / "boot"
+        raw_link.symlink_to("../../vendor/oplus/boot/include")
+        vendor_include = self.roots["vendor"] / "vendor/oplus/boot/include"
+        vendor_include.mkdir(parents=True)
+        (vendor_include / "boot_mode.h").write_text("#define BOOT_MODE 1\n")
+        (self.roots["msm"] / "drivers").mkdir()
+        group = {"root": "msm", "path": "drivers", "kind": "kbuild",
+                 "modules": ["example"], "configs": ["CONFIG_TEST"]}
+        manifest = {"build": {
+            "include_dirs": [{"root": "msm", "path": "include"}],
+            "source_link_maps": {"msm": [{
+                "marker": "vendor", "root": "vendor", "prefix": "vendor",
+            }]},
+        }}
+        output = self.root / "out"
+
+        def index(command, *, env, **kwargs):
+            response = Path(shlex.split(env["KCFLAGS"])[0][1:])
+            includes = [Path(flag[2:]) for flag in shlex.split(response.read_text())
+                        if flag.startswith("-I")]
+            self.assertEqual(includes, [output / "kbuild/source-view/msm/include"])
+            self.assertEqual((includes[0] / "boot/boot_mode.h").read_text(), "#define BOOT_MODE 1\n")
+            module_out = next(Path(argument[3:]) for argument in command if argument.startswith("MO="))
+            (module_out / "Module.symvers").touch()
+            (module_out / "example.ko").touch()
+
+        self.assertFalse(raw_link.exists())
+        with patch("buildsys.modules.run", side_effect=index):
+            result = build_modules(
+                SimpleNamespace(jobs=1), manifest, self.roots,
+                {"groups": [group], "unresolved": [], "ambiguous": {}},
+                output, output / "kernel-out", "test", {"ARCH": "arm64"},
+                check_group=_group_id(group),
+            )
+        self.assertEqual(result["status"], "index-pass")
+        self.assertFalse(raw_link.exists())
 
     def test_control_characters_in_make_values_are_rejected(self) -> None:
         (self.roots["vendor"] / "vendor/driver").mkdir()

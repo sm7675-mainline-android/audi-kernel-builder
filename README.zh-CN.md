@@ -138,6 +138,8 @@ bash tools/export-device-materials.sh /absolute/device-materials \
 
 工作流在检出源码前会清理 GitHub 托管 runner 的磁盘空间。若空间仍不足，可通过 `AUDI_RUNNER` 或 `runner` 参数选择备有 `sudo` 和 `rustup` 的 Ubuntu 24.04 x64 runner，检出源码及安装工具后需至少剩余 24 GiB 空间。工作流依次运行测试、`doctor`、全量构建和四镜像校验。确认 ROM 派生内容可以再分发后，可将 `UPLOAD_IMAGES` 设为 `true`，上传四镜像、相对路径的 SHA-256 清单、构建收据和 ABI/BTF 报告。
 
+构建失败时，会单独上传编译日志及 `module-failures.json`，产物名为 `audi-6.18-build-logs`，不受 `UPLOAD_IMAGES` 开关影响。
+
 ## 许可证
 
 构建系统采用 [MIT 许可证](LICENSE)。Qualcomm 的两份模块黑名单（[vendor](targets/cliffs/modules/modules.blocklist) 和 [system DLKM](targets/cliffs/modules/system_dlkm.modules.blocklist)）沿用 [GPL-2.0-only 许可证](LICENSES/GPL-2.0-only.txt)。源码仓库、工具链和设备材料按各自的许可条款单独分发。

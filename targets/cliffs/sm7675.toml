@@ -12,6 +12,14 @@ build_timestamp = "Wed Nov 18 12:19:22 UTC 2026"
 generated_files = [
   { root = "vendor", path = "vendor/qcom/opensource/camera-kernel/cam_generated_h", content = "#define CAMERA_COMPILE_TIME \"reproducible\"\n#define CAMERA_COMPILE_BY \"build-system\"\n#define CAMERA_COMPILE_HOST \"build-system\"\n" },
 ]
+source_replacements = [
+  { root = "vendor", path = "vendor/qcom/opensource/dsp-kernel/dsp/fastrpc_trace.h", search = "__assign_str(buf, message)", replace = "__assign_str(buf)", count = 1 },
+  { root = "vendor", path = "vendor/qcom/opensource/dsp-kernel/dsp/fastrpc_trace.h", search = "__assign_str(buf, event)", replace = "__assign_str(buf)", count = 1 },
+  { root = "vendor", path = "vendor/oplus/kernel/touchpanel/synaptics_hbp/touchpanel_healthinfo/touchpanel_stats.h", search = "__assign_str(tp_ic,\t\ttp_ic)", replace = "__assign_str(tp_ic)", count = 1 },
+  { root = "vendor", path = "vendor/oplus/kernel/touchpanel/synaptics_hbp/touchpanel_healthinfo/touchpanel_stats.h", search = "__assign_str(fw_ver,\tfw_ver)", replace = "__assign_str(fw_ver)", count = 1 },
+  { root = "vendor", path = "vendor/oplus/kernel/touchpanel/synaptics_hbp/touchpanel_healthinfo/touchpanel_stats.h", search = "__assign_str(detail_info,\tdetail_info)", replace = "__assign_str(detail_info)", count = 1 },
+  { root = "vendor", path = "vendor/oplus/kernel/touchpanel/synaptics_hbp/touchpanel_healthinfo/touchpanel_stats.h", search = "#define TRACE_INCLUDE_PATH  ../../../vendor/oplus/kernel/touchpanel/synaptics_hbp/touchpanel_healthinfo", replace = "#define TRACE_INCLUDE_PATH .", count = 1 },
+]
 include_globs = [
   { root = "vendor", pattern = "qcom/opensource/**/include" },
   { root = "vendor", pattern = "qcom/opensource/audio-kernel/include/uapi/audio" },
@@ -196,7 +204,13 @@ kcflags = ["-DCONFIG_OPLUS_ADSP_CHARGER=1", "-DCONFIG_QTI_BATTERY_CHARGER_MODULE
 make_vars = { CONFIG_AW_HAPTIC = "y", CONFIG_SIH_HAPTIC = "y" }
 
 [resolve.path_overrides."vendor:qcom/opensource/datarmnet/core"]
-kcflags = ["-DCONFIG_RMNET_LA_PLATFORM", "-DCONFIG_IPA3_MODULE=1", "-include {root:compat}/legacy_u64_stats_irq.h", "-include {root:kernel}/include/net/gso.h"]
+kcflags = ["-DRMNET_TRACE_INCLUDE_PATH={source}", "-DCONFIG_RMNET_LA_PLATFORM", "-DCONFIG_IPA3_MODULE=1", "-include {root:compat}/legacy_u64_stats_irq.h", "-include {root:kernel}/include/net/gso.h"]
+
+[resolve.path_overrides."vendor:qcom/opensource/dsp-kernel"]
+kcflags = ["-DDSP_TRACE_INCLUDE_PATH={source}/dsp"]
+
+[resolve.path_overrides."vendor:oplus/kernel/touchpanel/synaptics_hbp"]
+kcflags = ["-I{source}/touchpanel_healthinfo"]
 
 [resolve.path_overrides."vendor:qcom/opensource/datarmnet-ext/shs"]
 kcflags = ["-include {root:kernel}/include/net/gso.h", "-include {root:kernel}/include/net/netdev_rx_queue.h", "-include {root:kernel}/include/net/rps.h"]

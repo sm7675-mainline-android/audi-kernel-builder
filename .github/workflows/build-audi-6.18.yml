@@ -141,6 +141,16 @@ jobs:
           sha256sum images/{boot,vendor_boot,vendor_dlkm,system_dlkm}.img > SHA256SUMS.txt
           sha256sum --check SHA256SUMS.txt
 
+      - name: Upload build diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: audi-6.18-build-logs
+          if-no-files-found: ignore
+          path: |
+            out/current/logs/*.log
+            out/current/module-failures.json
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: ${{ vars.UPLOAD_IMAGES == 'true' }}
         with:

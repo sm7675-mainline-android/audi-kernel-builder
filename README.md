@@ -139,6 +139,8 @@ The workflow downloads `clang-r584948` from the `android17-release` branch of Go
 
 The workflow frees space on GitHub-hosted runners before checking out the sources. If more space is needed, use `AUDI_RUNNER` or the `runner` input to select an Ubuntu 24.04 x64 runner with `sudo`, `rustup`, and at least 24 GiB free after checkout and tool setup. The workflow runs the tests, `doctor`, the full build, and four-image verification. If redistribution of the ROM-derived contents is permitted, set `UPLOAD_IMAGES` to `true` to upload the four images, a SHA-256 manifest with relative paths, build receipts, and ABI/BTF reports.
 
+Failed builds upload compilation logs and `module-failures.json` as the `audi-6.18-build-logs` artifact, independently of `UPLOAD_IMAGES`.
+
 ## License
 
 The builder is available under the [MIT License](LICENSE). Qualcomm's two module blocklists, [vendor](targets/cliffs/modules/modules.blocklist) and [system DLKM](targets/cliffs/modules/system_dlkm.modules.blocklist), retain their [GPL-2.0-only license](LICENSES/GPL-2.0-only.txt). The source repositories, toolchain, and device materials are distributed separately under their respective terms.

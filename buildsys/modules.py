@@ -13,6 +13,7 @@ from typing import Any
 from .common import PipelineError, ensure_output_path, find_tool, run, sha256_file, write_json
 from .abi import imported_crcs
 from .btf import audit_btf, stale_split_modules
+from .toolchain import module_include_dirs, module_kcflags
 
 
 def _group_id(group: dict[str, Any]) -> str:
@@ -800,12 +801,19 @@ def build_modules(
             groups_by_root.setdefault(group["root"], []).append(group)
     source_link_maps = manifest.get("build", {}).get("source_link_maps", {})
     generated_source_links = manifest.get("build", {}).get("source_links", {})
+    include_paths: dict[str, list[str]] = {}
+    for root_name, directory in module_include_dirs(manifest, roots):
+        if root_name not in direct_roots:
+            include_paths.setdefault(root_name, []).append(
+                str(directory.relative_to(roots[root_name]))
+            )
+            groups_by_root.setdefault(root_name, [])
 
     def active_paths(root_name: str) -> list[str]:
-        paths = [group["path"] for group in groups_by_root[root_name]]
+        paths = [group["path"] for group in groups_by_root.get(root_name, [])]
         if root_name == "vendor":
-            return [str(Path("vendor") / path) for path in paths]
-        return paths
+            paths = [str(Path("vendor") / path) for path in paths]
+        return paths + include_paths.get(root_name, [])
 
     for group in plan["groups"]:
         if group["root"] != "kernel":
@@ -818,7 +826,7 @@ def build_modules(
         for root_name in groups_by_root
         for mapping in source_link_maps.get(root_name, [])
     }
-    pending = set(required_link_roots)
+    pending = required_link_roots | include_paths.keys()
     while pending:
         ready = sorted(
             root_name for root_name in pending
@@ -865,15 +873,6 @@ def build_modules(
     )
     _generate_declared_source_files(source_views, manifest, output)
     _prepare_generated_vendor_files(source_views)
-    if source_patch_overlay:
-        env = env.copy()
-        env["MODULE_KCFLAGS"] = " ".join(
-            value for value in (
-                env.get("MODULE_KCFLAGS", env.get("KCFLAGS", "")),
-                *_source_patch_overlay_flags(source_patch_overlay),
-            ) if value
-        )
-
     compile_groups = plan["groups"]
     if check_group is not None:
         compile_groups = [group for group in compile_groups if _group_id(group) == check_group]
@@ -936,6 +935,12 @@ def build_modules(
             "final_out": final_out,
             "group": group,
         })
+
+    env = env.copy()
+    module_flags = module_kcflags(manifest, build_roots, env.get("KCFLAGS", ""), output)
+    if source_patch_overlay:
+        module_flags = " ".join([module_flags, *_source_patch_overlay_flags(source_patch_overlay)])
+    env["MODULE_KCFLAGS"] = module_flags
 
     for name, previous in source_times.items():
         _restore_local_file_times(build_root / name, previous)
