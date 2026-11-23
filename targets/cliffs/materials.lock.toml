@@ -1,0 +1,14 @@
+schema = 1
+
+[files]
+"system_dlkm/etc/NOTICE.xml.gz" = "59efc7d2d91cdec65990b6a4e499dbefe858ddb2033b08ff2237a0cbbef10efa"
+"system_dlkm/etc/build.prop" = "df9054337a927690b778fa6f5273e94dd32c617ccfde636cc85be1b8b2d771a1"
+"system_dlkm/etc/fs_config_dirs" = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+"system_dlkm/etc/fs_config_files" = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+"vendor_boot.bootconfig" = "17b0b59ff5d5e29c5a974a7116ce64f45bf7c95f7a4f85e1062467f7d397d7aa"
+"vendor_boot.dtb" = "3ba5336e265a2930a99bdb22cca6d614cdd411013bc9378bd202cce22cd7cf65"
+"vendor_dlkm/etc/NOTICE.xml.gz" = "ef2ae21064b9e4d3d3bdab0b489884f4b068731f6018636b20f45cc88b9e9964"
+"vendor_dlkm/etc/build.prop" = "b49fb98d3506c814f460ae9e44ecd67e8640b0a84ba7041a7132e4d7aea311b4"
+"vendor_dlkm/etc/fs_config_dirs" = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+"vendor_dlkm/etc/fs_config_files" = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+"vendor_ramdisk.tar" = "9ee39eebbda0377f82fcc5a9191d066e068b5b62d9431cdb1da743bfc1a5e49a"

@@ -1,0 +1,157 @@
+name: Build Audi 6.18
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_ref:
+        description: Kernel branch, tag or commit
+        default: oneplus/sm7675-6.18
+        required: true
+        type: string
+      msm_ref:
+        description: MSM branch, tag or commit
+        default: oneplus/sm7675-6.18
+        required: true
+        type: string
+      vendor_ref:
+        description: Vendor branch, tag or commit
+        default: oneplus/sm7675-6.18
+        required: true
+        type: string
+      materials_repository:
+        description: Audi ROM materials repository (owner/repository)
+        default: sm7675-mainline-android/audi-device-materials
+        required: true
+        type: string
+      builder_image:
+        description: Build environment container digest (overrides AUDI_BUILDER_IMAGE)
+        required: false
+        type: string
+      runner:
+        description: Linux x64 runner label (overrides AUDI_RUNNER)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Validate build environment
+        shell: bash
+        env:
+          BUILDER_IMAGE: ${{ inputs.builder_image || vars.AUDI_BUILDER_IMAGE }}
+          RUNNER: ${{ inputs.runner || vars.AUDI_RUNNER }}
+        run: |
+          set -euo pipefail
+          [[ "$BUILDER_IMAGE" =~ ^[a-z0-9][a-z0-9./:_-]*@sha256:[a-f0-9]{64}$ ]] || {
+            echo 'Set AUDI_BUILDER_IMAGE or builder_image to a registry image pinned by OCI digest' >&2; exit 2;
+          }
+          [[ -n "$RUNNER" ]] || {
+            echo 'Set AUDI_RUNNER or runner to a Linux x64 runner label with at least 24 GiB free after source and toolchain checkout' >&2; exit 2;
+          }
+
+  build:
+    needs: validate
+    runs-on: ${{ inputs.runner || vars.AUDI_RUNNER }}
+    container:
+      image: ${{ inputs.builder_image || vars.AUDI_BUILDER_IMAGE }}
+    timeout-minutes: 240
+    steps:
+      - name: Check out the Audi builder
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Check out the GKI kernel
+        uses: actions/checkout@v6
+        with:
+          repository: sm7675-mainline-android/kernel_common
+          ref: ${{ inputs.kernel_ref }}
+          path: src/kernel
+          persist-credentials: false
+      - name: Check out MSM drivers
+        uses: actions/checkout@v6
+        with:
+          repository: sm7675-mainline-android/android_kernel_oneplus_sm7675
+          ref: ${{ inputs.msm_ref }}
+          path: src/msm
+          persist-credentials: false
+      - name: Check out vendor drivers
+        uses: actions/checkout@v6
+        with:
+          repository: sm7675-mainline-android/android_kernel_modules_and_devicetree_oneplus_sm7675
+          ref: ${{ inputs.vendor_ref }}
+          path: src/vendor
+          persist-credentials: false
+      - name: Check out ROM materials
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ inputs.materials_repository }}
+          path: device-materials
+          token: ${{ secrets.MATERIALS_REPO_TOKEN || github.token }}
+          persist-credentials: false
+
+      - name: Download Google Android Clang
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ $(uname -m) == x86_64 ]]
+          clang_repo=https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86
+          clang_ref=android17-release
+          clang_name=clang-r584948
+          clang_root="$GITHUB_WORKSPACE/src/llvm"
+          mkdir -p "$clang_root"
+          clang_checkout=$(mktemp -d "$clang_root/.checkout.XXXXXXXX")
+          trap 'rm -rf -- "$clang_checkout"' EXIT
+
+          git clone --depth 1 --filter=blob:none --single-branch --branch "$clang_ref" \
+            --sparse "$clang_repo" "$clang_checkout"
+          git -C "$clang_checkout" sparse-checkout set --cone "$clang_name"
+          git -C "$clang_checkout" log -1 --format='Google Clang source commit: %H'
+          test -x "$clang_checkout/$clang_name/bin/clang"
+          test -r "$clang_checkout/$clang_name/lib/libclang.so"
+          clang_dir="$clang_root/$clang_name"
+          mv -T "$clang_checkout/$clang_name" "$clang_dir"
+          "$clang_dir/bin/clang" --version
+          printf 'AUDI_CLANG_BIN=%s\nLIBCLANG_PATH=%s\n' \
+            "$clang_dir/bin" "$clang_dir/lib" >> "$GITHUB_ENV"
+
+      - name: Build and verify four images
+        shell: bash
+        run: |
+          set -euo pipefail
+          free_kib=$(df -Pk . | awk 'NR == 2 { print $4 }')
+          if (( free_kib < 24 * 1024 * 1024 )); then
+            echo 'At least 24 GiB free after source and toolchain checkout is required on the build runner' >&2
+            exit 1
+          fi
+          make test
+          args=("KERNEL_SRC=$PWD/src/kernel" "MSM_SRC=$PWD/src/msm" "VENDOR_SRC=$PWD/src/vendor"
+                "MATERIALS=$PWD/device-materials" "TOOLCHAIN=$AUDI_CLANG_BIN")
+          make doctor "${args[@]}"
+          jobs=$(nproc)
+          if (( jobs > 8 )); then jobs=8; fi
+          make all "${args[@]}" "FORGE_ARGS=--jobs $jobs"
+          cd out/current
+          sha256sum --check SHA256SUMS.txt
+          sha256sum images/{boot,vendor_boot,vendor_dlkm,system_dlkm}.img > SHA256SUMS.txt
+          sha256sum --check SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: ${{ vars.UPLOAD_IMAGES == 'true' }}
+        with:
+          name: audi-6.18-four-images
+          if-no-files-found: error
+          path: |
+            out/current/images/boot.img
+            out/current/images/vendor_boot.img
+            out/current/images/vendor_dlkm.img
+            out/current/images/system_dlkm.img
+            out/current/SHA256SUMS.txt
+            out/current/build-receipt.json
+            out/current/images-receipt.json
+            out/current/logs/delivered-*-audit.json
+            out/current/build-identity.json
+            targets/cliffs/materials.lock.toml
