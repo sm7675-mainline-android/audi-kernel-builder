@@ -15,6 +15,7 @@ from unittest.mock import patch
 from buildsys.catalog import PipelineError, build_plan, kernel_config_path, source_roots
 from buildsys.common import find_tool, tree_digest
 from buildsys.images import _has_xattr, _merge_softdep, _sanitize_module_aliases
+from buildsys.kernelsu import build_kernelsu
 from buildsys.modules import (
     _apply_source_patches,
     _external_command,
@@ -1046,6 +1047,51 @@ class GeneratedModuleTests(unittest.TestCase):
 
 
 class PipelineTests(unittest.TestCase):
+    def test_kernelsu_ignores_vendor_plan_changes_but_checks_kernel_inputs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp)
+            source = output / "KernelSU"
+            (source / "kernel").mkdir(parents=True)
+            (source / "kernel/Kbuild").write_text("obj-m += kernelsu.o\n")
+            args = SimpleNamespace(kernelsu_src=str(source))
+            target = output / "target.toml"
+            previous = {
+                "source_states": {"kernel": "locked"},
+                "toolchain": {"clang": "locked"},
+            }
+            identity_path = output / "build-identity.json"
+            identity_path.write_text(json.dumps(previous))
+            plan_path = output / "plan.json"
+            plan_path.write_text(json.dumps({"groups": ["old-vendor-group"]}))
+            receipt_path = output / "modules-receipt.json"
+            receipt_path.write_text("{}")
+            cases = (
+                (previous, "kernel receipt reached"),
+                (dict(previous, source_states={"kernel": "changed"}),
+                 "kernel build inputs changed"),
+                (dict(previous, toolchain={"clang": "changed"}),
+                 "kernel build inputs changed"),
+            )
+            for identity, expected_error in cases:
+                with self.subTest(identity=identity), \
+                        patch("buildsys.pipeline.load_context",
+                              return_value=(target, {}, {}, output)), \
+                        patch("buildsys.pipeline._source_states", return_value={}), \
+                        patch("buildsys.pipeline._toolchain_and_env",
+                              return_value=({}, {}, {})), \
+                        patch("buildsys.pipeline._build_identity", return_value=identity), \
+                        patch("buildsys.pipeline.build_plan",
+                              return_value={"groups": ["new-vendor-group"]}) as plan_mock, \
+                        patch("buildsys.pipeline._require_kernel_receipt",
+                              side_effect=PipelineError("kernel receipt reached")), \
+                        self.assertRaisesRegex(PipelineError, expected_error):
+                    build_kernelsu(args)
+                plan_mock.assert_not_called()
+                self.assertEqual(json.loads(identity_path.read_text()), previous)
+                self.assertEqual(json.loads(plan_path.read_text()),
+                                 {"groups": ["old-vendor-group"]})
+                self.assertEqual(receipt_path.read_text(), "{}")
+
     @patch("buildsys.pipeline.build_plan", return_value={})
     def test_packaging_allows_python_upgrade_but_rejects_kernel_change(self, _plan) -> None:
         temporary = tempfile.TemporaryDirectory()

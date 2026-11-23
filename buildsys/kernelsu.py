@@ -27,6 +27,7 @@ def build_kernelsu(args: Any) -> int:
         toolchain, env, tools = _toolchain_and_env(args, manifest, roots, output)
         _require_packaging_identity(
             output, _build_identity(target, manifest, states, toolchain, roots), target, roots, manifest,
+            gki_only=True,
         )
         image, release = _require_kernel_receipt(output)
         kernel_out = output / "kernel-out"
