@@ -137,9 +137,9 @@ The workflow runs directly on the GitHub-hosted `ubuntu-24.04` x64 runner by def
 
 The workflow downloads `clang-r584948` from the `android17-release` branch of Google's `platform/prebuilts/clang/host/linux-x86` repository, logs the toolchain source commit, and passes `src/llvm/clang-r584948/bin` to the builder. Clang runs on an x86-64 host and cross-compiles for arm64. The build receipt records the LLVM binary hashes.
 
-The workflow frees space on GitHub-hosted runners before checking out the sources. If more space is needed, use `AUDI_RUNNER` or the `runner` input to select an Ubuntu 24.04 x64 runner with `sudo`, `rustup`, and at least 24 GiB free after checkout and tool setup. The workflow runs the tests, `doctor`, the full build, and four-image verification. If redistribution of the ROM-derived contents is permitted, set `UPLOAD_IMAGES` to `true` to upload the four images, a SHA-256 manifest with relative paths, build receipts, and ABI/BTF reports.
+The workflow frees space on GitHub-hosted runners before checking out the sources. If more space is needed, use `AUDI_RUNNER` or the `runner` input to select an Ubuntu 24.04 x64 runner with `sudo`, `rustup`, and at least 24 GiB free after checkout and tool setup. The workflow runs the tests, `doctor`, the full build, and four-image verification. Successful builds automatically upload the four images, a SHA-256 manifest with relative paths, build receipts, and ABI/BTF reports as the `audi-6.18-four-images` artifact. Download it from the completed run's **Artifacts** section; no upload variable is required.
 
-Failed builds upload compilation logs and `module-failures.json` as the `audi-6.18-build-logs` artifact, independently of `UPLOAD_IMAGES`.
+Failed builds upload compilation logs and `module-failures.json` as the `audi-6.18-build-logs` artifact.
 
 ## License
 

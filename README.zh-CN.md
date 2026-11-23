@@ -136,9 +136,9 @@ bash tools/export-device-materials.sh /absolute/device-materials \
 
 工作流从 Google 的 `platform/prebuilts/clang/host/linux-x86` 仓库的 `android17-release` 分支下载 `clang-r584948`，记录来源提交，并将 `src/llvm/clang-r584948/bin` 传给构建器。工具链运行在 x86-64 宿主上，交叉编译的目标为 arm64。构建收据记录工具链二进制的哈希。
 
-工作流在检出源码前会清理 GitHub 托管 runner 的磁盘空间。若空间仍不足，可通过 `AUDI_RUNNER` 或 `runner` 参数选择备有 `sudo` 和 `rustup` 的 Ubuntu 24.04 x64 runner，检出源码及安装工具后需至少剩余 24 GiB 空间。工作流依次运行测试、`doctor`、全量构建和四镜像校验。确认 ROM 派生内容可以再分发后，可将 `UPLOAD_IMAGES` 设为 `true`，上传四镜像、相对路径的 SHA-256 清单、构建收据和 ABI/BTF 报告。
+工作流在检出源码前会清理 GitHub 托管 runner 的磁盘空间。若空间仍不足，可通过 `AUDI_RUNNER` 或 `runner` 参数选择备有 `sudo` 和 `rustup` 的 Ubuntu 24.04 x64 runner，检出源码及安装工具后需至少剩余 24 GiB 空间。工作流依次运行测试、`doctor`、全量构建和四镜像校验。构建成功后自动上传四镜像、相对路径的 SHA-256 清单、构建收据和 ABI/BTF 报告，产物名为 `audi-6.18-four-images`。在已完成运行页面的 **Artifacts** 区域下载即可，无需设置上传变量。
 
-构建失败时，会单独上传编译日志及 `module-failures.json`，产物名为 `audi-6.18-build-logs`，不受 `UPLOAD_IMAGES` 开关影响。
+构建失败时，会单独上传编译日志及 `module-failures.json`，产物名为 `audi-6.18-build-logs`。
 
 ## 许可证
 

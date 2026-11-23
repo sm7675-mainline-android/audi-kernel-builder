@@ -151,8 +151,8 @@ jobs:
             out/current/logs/*.log
             out/current/module-failures.json
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: ${{ vars.UPLOAD_IMAGES == 'true' }}
+      - name: Upload verified four images
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: audi-6.18-four-images
           if-no-files-found: error
