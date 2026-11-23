@@ -456,6 +456,18 @@ class BuildPlanTests(unittest.TestCase):
         with self.assertRaisesRegex(PipelineError, "control character"):
             build_plan(self.target_dir / "target.toml", self.roots, plan_manifest)
 
+    def test_cliffs_trace_paths_do_not_expand_current_macro(self) -> None:
+        target = Path(__file__).resolve().parents[1] / "targets/cliffs/sm7675.toml"
+        manifest = tomllib.loads(target.read_text())
+        overrides = manifest["resolve"]["path_overrides"]
+        for path, define, include in (
+            ("vendor:qcom/opensource/datarmnet/core", "RMNET_TRACE_INCLUDE_PATH", "-I{source}"),
+            ("vendor:qcom/opensource/dsp-kernel", "DSP_TRACE_INCLUDE_PATH", "-I{source}/dsp"),
+        ):
+            flags = overrides[path]["kcflags"]
+            self.assertIn(f"-D{define}=.", flags)
+            self.assertIn(include, flags)
+
     def test_source_paths_are_not_restricted_to_workspace_names(self) -> None:
         for legacy in ("common", "crd"):
             with self.subTest(legacy=legacy), tempfile.TemporaryDirectory() as temp:

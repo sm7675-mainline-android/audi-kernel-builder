@@ -204,10 +204,10 @@ kcflags = ["-DCONFIG_OPLUS_ADSP_CHARGER=1", "-DCONFIG_QTI_BATTERY_CHARGER_MODULE
 make_vars = { CONFIG_AW_HAPTIC = "y", CONFIG_SIH_HAPTIC = "y" }
 
 [resolve.path_overrides."vendor:qcom/opensource/datarmnet/core"]
-kcflags = ["-DRMNET_TRACE_INCLUDE_PATH={source}", "-DCONFIG_RMNET_LA_PLATFORM", "-DCONFIG_IPA3_MODULE=1", "-include {root:compat}/legacy_u64_stats_irq.h", "-include {root:kernel}/include/net/gso.h"]
+kcflags = ["-DRMNET_TRACE_INCLUDE_PATH=.", "-I{source}", "-DCONFIG_RMNET_LA_PLATFORM", "-DCONFIG_IPA3_MODULE=1", "-include {root:compat}/legacy_u64_stats_irq.h", "-include {root:kernel}/include/net/gso.h"]
 
 [resolve.path_overrides."vendor:qcom/opensource/dsp-kernel"]
-kcflags = ["-DDSP_TRACE_INCLUDE_PATH={source}/dsp"]
+kcflags = ["-DDSP_TRACE_INCLUDE_PATH=.", "-I{source}/dsp"]
 
 [resolve.path_overrides."vendor:oplus/kernel/touchpanel/synaptics_hbp"]
 kcflags = ["-I{source}/touchpanel_healthinfo"]
