@@ -3,14 +3,29 @@ name: Build Audi 6.18
 on:
   workflow_dispatch:
     inputs:
+      kernel_repository:
+        description: GKI kernel repository (owner/repository)
+        default: sm7675-mainline-android/kernel_common
+        required: true
+        type: string
       kernel_ref:
-        description: Kernel branch, tag or commit
+        description: GKI kernel branch, tag or commit
         default: oneplus/sm7675-6.18
+        required: true
+        type: string
+      msm_repository:
+        description: MSM drivers repository (owner/repository)
+        default: sm7675-mainline-android/android_kernel_oneplus_sm7675
         required: true
         type: string
       msm_ref:
         description: MSM branch, tag or commit
         default: oneplus/sm7675-6.18
+        required: true
+        type: string
+      vendor_repository:
+        description: OnePlus vendor drivers repository (owner/repository)
+        default: sm7675-mainline-android/android_kernel_modules_and_devicetree_oneplus_sm7675
         required: true
         type: string
       vendor_ref:
@@ -23,12 +38,8 @@ on:
         default: sm7675-mainline-android/audi-device-materials
         required: true
         type: string
-      builder_image:
-        description: Build environment container digest (overrides AUDI_BUILDER_IMAGE)
-        required: false
-        type: string
       runner:
-        description: Linux x64 runner label (overrides AUDI_RUNNER)
+        description: Ubuntu 24.04 x64 runner label (optional, overrides AUDI_RUNNER)
         required: false
         type: string
 
@@ -36,52 +47,38 @@ permissions:
   contents: read
 
 jobs:
-  validate:
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Validate build environment
-        shell: bash
-        env:
-          BUILDER_IMAGE: ${{ inputs.builder_image || vars.AUDI_BUILDER_IMAGE }}
-          RUNNER: ${{ inputs.runner || vars.AUDI_RUNNER }}
-        run: |
-          set -euo pipefail
-          [[ "$BUILDER_IMAGE" =~ ^[a-z0-9][a-z0-9./:_-]*@sha256:[a-f0-9]{64}$ ]] || {
-            echo 'Set AUDI_BUILDER_IMAGE or builder_image to a registry image pinned by OCI digest' >&2; exit 2;
-          }
-          [[ -n "$RUNNER" ]] || {
-            echo 'Set AUDI_RUNNER or runner to a Linux x64 runner label with at least 24 GiB free after source and toolchain checkout' >&2; exit 2;
-          }
-
   build:
-    needs: validate
-    runs-on: ${{ inputs.runner || vars.AUDI_RUNNER }}
-    container:
-      image: ${{ inputs.builder_image || vars.AUDI_BUILDER_IMAGE }}
+    runs-on: ${{ inputs.runner || vars.AUDI_RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 240
     steps:
       - name: Check out the Audi builder
         uses: actions/checkout@v6
         with:
           persist-credentials: false
+      - name: Free disk space on the GitHub-hosted runner
+        if: ${{ runner.environment == 'github-hosted' }}
+        shell: bash
+        run: |
+          sudo rm -rf /opt/ghc /opt/hostedtoolcache /usr/local/.ghcup /usr/local/lib/android /usr/share/dotnet /usr/share/swift
+          df -h "$GITHUB_WORKSPACE"
       - name: Check out the GKI kernel
         uses: actions/checkout@v6
         with:
-          repository: sm7675-mainline-android/kernel_common
+          repository: ${{ inputs.kernel_repository }}
           ref: ${{ inputs.kernel_ref }}
           path: src/kernel
           persist-credentials: false
       - name: Check out MSM drivers
         uses: actions/checkout@v6
         with:
-          repository: sm7675-mainline-android/android_kernel_oneplus_sm7675
+          repository: ${{ inputs.msm_repository }}
           ref: ${{ inputs.msm_ref }}
           path: src/msm
           persist-credentials: false
       - name: Check out vendor drivers
         uses: actions/checkout@v6
         with:
-          repository: sm7675-mainline-android/android_kernel_modules_and_devicetree_oneplus_sm7675
+          repository: ${{ inputs.vendor_repository }}
           ref: ${{ inputs.vendor_ref }}
           path: src/vendor
           persist-credentials: false
@@ -118,13 +115,18 @@ jobs:
           printf 'AUDI_CLANG_BIN=%s\nLIBCLANG_PATH=%s\n' \
             "$clang_dir/bin" "$clang_dir/lib" >> "$GITHUB_ENV"
 
+      - name: Install host build tools
+        shell: bash
+        run: bash .github/install-host-tools.sh
+
       - name: Build and verify four images
         shell: bash
         run: |
           set -euo pipefail
           free_kib=$(df -Pk . | awk 'NR == 2 { print $4 }')
           if (( free_kib < 24 * 1024 * 1024 )); then
-            echo 'At least 24 GiB free after source and toolchain checkout is required on the build runner' >&2
+            df -h .
+            echo 'The build needs 24 GiB free after checkout and host tool setup. Select a runner with more disk space if needed.' >&2
             exit 1
           fi
           make test

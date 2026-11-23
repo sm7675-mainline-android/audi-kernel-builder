@@ -128,13 +128,15 @@ bash tools/export-device-materials.sh /absolute/device-materials \
 | OnePlus vendor 驱动 | `sm7675-mainline-android/android_kernel_modules_and_devicetree_oneplus_sm7675` |
 | 设备材料 | `sm7675-mainline-android/audi-device-materials` |
 
-三个源码仓都默认使用 `oneplus/sm7675-6.18` 分支，可分别传入分支、标签或提交。发布构建建议填入经过测试的三个完整提交。工作流自动检出 `audi-device-materials` 的默认分支。可用 `materials_repository` 切换仓库，私有仓库需设置有只读权限的 `MATERIALS_REPO_TOKEN`。构建器按 `targets/cliffs/materials.lock.toml` 校验材料文件的 SHA-256。
+**Use workflow from** 选择当前构建系统仓库或 fork 中运行工作流的分支。三个源码仓的地址和版本由独立参数控制，可用 `kernel_repository`、`msm_repository`、`vendor_repository` 填入自己的 `owner/repository`，并在对应的 `*_ref` 参数中指定分支、标签或提交。默认使用上表中的公开源码仓和 `oneplus/sm7675-6.18` 分支。发布构建建议填入经过测试的三个完整提交。
 
-通过仓库变量 `AUDI_BUILDER_IMAGE` 或工作流参数 `builder_image` 提供可拉取的 Linux x86-64 glibc 构建容器，并用 `registry/name@sha256:...` 的 OCI 摘要固定版本。容器需提供 Python 3.12 或更新版本、GNU 构建工具、内核宿主依赖（含 libelf 和 OpenSSL）、Git、Bash、`mkbootimg`、`unpack_bootimg`、`avbtool`、`pahole` 和支持 distilled BTF 的 libbpf。已验证的 EROFS 工具为 erofs-utils 1.9.4，需支持 lz4hc、lzma 和 PAX xattr。可执行工具清单见 `buildsys/toolchain.py`。
+工作流检出 `materials_repository` 所选仓库的默认分支。私有材料仓库需设置有只读权限的 `MATERIALS_REPO_TOKEN`。构建器按 `targets/cliffs/materials.lock.toml` 校验材料文件的 SHA-256。
+
+工作流默认直接运行在 GitHub 托管的 `ubuntu-24.04` x64 runner 上，通过 APT 安装宿主依赖，并准备 Android 镜像工具、erofs-utils、pahole、libbpf 和 Rust 工具。使用公开仓库的默认配置即可发起构建，无需配置容器镜像或仓库变量。
 
 工作流从 Google 的 `platform/prebuilts/clang/host/linux-x86` 仓库的 `android17-release` 分支下载 `clang-r584948`，记录来源提交，并将 `src/llvm/clang-r584948/bin` 传给构建器。工具链运行在 x86-64 宿主上，交叉编译的目标为 arm64。构建收据记录工具链二进制的哈希。
 
-通过 `AUDI_RUNNER` 或工作流参数 `runner` 指定 Linux x64 runner。源码和工具链检出后需至少剩余 24 GiB 空间。工作流依次运行测试、`doctor`、全量构建和四镜像校验。确认 ROM 派生内容可以再分发后，可将 `UPLOAD_IMAGES` 设为 `true`，上传四镜像、相对路径的 SHA-256 清单、构建收据和 ABI/BTF 报告。
+工作流在检出源码前会清理 GitHub 托管 runner 的磁盘空间。若空间仍不足，可通过 `AUDI_RUNNER` 或 `runner` 参数选择备有 `sudo` 和 `rustup` 的 Ubuntu 24.04 x64 runner，检出源码及安装工具后需至少剩余 24 GiB 空间。工作流依次运行测试、`doctor`、全量构建和四镜像校验。确认 ROM 派生内容可以再分发后，可将 `UPLOAD_IMAGES` 设为 `true`，上传四镜像、相对路径的 SHA-256 清单、构建收据和 ABI/BTF 报告。
 
 ## 许可证
 
@@ -146,7 +148,7 @@ bash tools/export-device-materials.sh /absolute/device-materials \
 
 暂存阶段将文件时间统一为目标清单中的 `source_date_epoch`。cpio 使用可重复生成模式，EROFS 固定 UUID、时间戳、路径排序和工作线程数。EROFS 打包器从生成的 PAX 归档读取 `security.selinux` 条目，因此可以在普通用户权限下生成带标签的镜像。
 
-要实现逐字节复现，还需使用相同的宿主环境，包括 Make、Python、depmod、cpio、lz4、erofs-utils、mkbootimg、avbtool 和内核宿主构建依赖。收据记录直接调用的打包工具和 LLVM 可执行文件，CI 容器的 OCI 摘要用于固定间接依赖。
+要实现逐字节复现，还需使用相同的宿主环境，包括 Make、Python、depmod、cpio、lz4、erofs-utils、mkbootimg、avbtool 和内核宿主构建依赖。收据记录直接调用的打包工具和 LLVM 可执行文件。
 
 ## 测试
 

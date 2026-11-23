@@ -129,13 +129,15 @@ Run **Build Audi 6.18** manually from the Actions tab. The workflow in `.github/
 | OnePlus vendor drivers | `sm7675-mainline-android/android_kernel_modules_and_devicetree_oneplus_sm7675` |
 | Device materials | `sm7675-mainline-android/audi-device-materials` |
 
-The three source repositories default to `oneplus/sm7675-6.18`. You can specify a branch, tag, or commit for each. For releases, use the full commit hashes you tested. The workflow automatically checks out the default branch of `audi-device-materials`. Use `materials_repository` to select another repository. Private materials repositories require a read-only `MATERIALS_REPO_TOKEN` secret. The builder checks the SHA-256 hashes of the material files against `targets/cliffs/materials.lock.toml`.
+The **Use workflow from** selector chooses the branch of this builder repository or fork. The three source repositories and their refs are separate inputs. Set `kernel_repository`, `msm_repository`, or `vendor_repository` to your own `owner/repository`, and use the matching `*_ref` input to select a branch, tag, or commit. The default repositories are public and their default branch for this build is `oneplus/sm7675-6.18`. For releases, use the full commit hashes you tested.
 
-Set the repository variable `AUDI_BUILDER_IMAGE` or the `builder_image` input to a Linux x86-64 build container with glibc that the runner can pull. Pin it by OCI digest (`registry/name@sha256:...`). The container needs Python 3.12 or later, GNU build utilities, kernel host dependencies including libelf and OpenSSL, Git, Bash, `mkbootimg`, `unpack_bootimg`, `avbtool`, `pahole`, and libbpf with distilled BTF support. The tested EROFS toolset is erofs-utils 1.9.4 with lz4hc, lzma, and PAX xattr support. The executable list is in `buildsys/toolchain.py`.
+The workflow checks out the default branch of the repository selected by `materials_repository`. Private materials repositories require a read-only `MATERIALS_REPO_TOKEN` secret. The builder checks the SHA-256 hashes of the material files against `targets/cliffs/materials.lock.toml`.
+
+The workflow runs directly on the GitHub-hosted `ubuntu-24.04` x64 runner by default. It installs host dependencies with APT and sets up the Android image tools, erofs-utils, pahole, libbpf, and Rust tools. No container image or repository variables are required to start a build with the public defaults.
 
 The workflow downloads `clang-r584948` from the `android17-release` branch of Google's `platform/prebuilts/clang/host/linux-x86` repository, logs the toolchain source commit, and passes `src/llvm/clang-r584948/bin` to the builder. Clang runs on an x86-64 host and cross-compiles for arm64. The build receipt records the LLVM binary hashes.
 
-Use `AUDI_RUNNER` or the `runner` input to select a Linux x64 runner. The runner needs at least 24 GiB free after checking out the sources and toolchain. The workflow runs the tests, `doctor`, the full build, and four-image verification. If redistribution of the ROM-derived contents is permitted, set `UPLOAD_IMAGES` to `true` to upload the four images, a SHA-256 manifest with relative paths, build receipts, and ABI/BTF reports.
+The workflow frees space on GitHub-hosted runners before checking out the sources. If more space is needed, use `AUDI_RUNNER` or the `runner` input to select an Ubuntu 24.04 x64 runner with `sudo`, `rustup`, and at least 24 GiB free after checkout and tool setup. The workflow runs the tests, `doctor`, the full build, and four-image verification. If redistribution of the ROM-derived contents is permitted, set `UPLOAD_IMAGES` to `true` to upload the four images, a SHA-256 manifest with relative paths, build receipts, and ABI/BTF reports.
 
 ## License
 
@@ -147,7 +149,7 @@ Each `--out` directory has a `build-identity.json` that records target and confi
 
 Staging sets file timestamps to the target's `source_date_epoch`. cpio uses reproducible mode, and EROFS fixes the UUID, timestamps, path order, and worker count. The EROFS packer reads `security.selinux` entries from a generated PAX archive so it can build labeled images without elevated privileges.
 
-Bit-for-bit reproducibility also requires the same host environment, including Make, Python, depmod, cpio, lz4, erofs-utils, mkbootimg, avbtool, and the kernel's host build dependencies. Receipts record the packaging and LLVM executables called by the build. The CI container's OCI digest pins indirect dependencies.
+Bit-for-bit reproducibility also requires the same host environment, including Make, Python, depmod, cpio, lz4, erofs-utils, mkbootimg, avbtool, and the kernel's host build dependencies. Receipts record the packaging and LLVM executables called by the build.
 
 ## Tests
 
