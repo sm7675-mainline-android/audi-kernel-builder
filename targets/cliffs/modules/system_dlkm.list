@@ -29,6 +29,10 @@ kheaders
 l2tp_core
 l2tp_ppp
 libarc4
+lz4k_encode
+lz4k_decode
+lz4kd_encode
+lz4kd_decode
 mac802154
 mii
 nfc
