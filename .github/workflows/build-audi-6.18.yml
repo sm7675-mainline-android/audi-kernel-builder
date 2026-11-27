@@ -42,9 +42,18 @@ on:
         description: Ubuntu 24.04 x64 runner label (optional, overrides AUDI_RUNNER)
         required: false
         type: string
+      publish_nightly:
+        description: Publish this build to the rolling nightly prerelease
+        required: false
+        default: true
+        type: boolean
 
 permissions:
   contents: read
+
+concurrency:
+  group: audi-6.18-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -143,7 +152,7 @@ jobs:
 
       - name: Upload build diagnostics on failure
         if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: audi-6.18-build-logs
           if-no-files-found: ignore
@@ -152,7 +161,8 @@ jobs:
             out/current/module-failures.json
 
       - name: Upload verified four images
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        id: upload_images
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: audi-6.18-four-images
           if-no-files-found: error
@@ -167,3 +177,200 @@ jobs:
             out/current/logs/delivered-*-audit.json
             out/current/build-identity.json
             targets/cliffs/materials.lock.toml
+
+      - name: Build KernelSU LKM variants
+        id: build_kernelsu
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -uo pipefail
+          root="$GITHUB_WORKSPACE/src/kernelsu"
+          mkdir -p "$root" "$GITHUB_WORKSPACE/out/current/kernelsu"
+          summary="$GITHUB_WORKSPACE/out/current/kernelsu/build-summary.txt"
+          : > "$summary"
+
+          patch_android_gki_vfs_namespace() {
+            python3 - "$1" <<'PY'
+          import pathlib
+          import sys
+
+          path = pathlib.Path(sys.argv[1])
+          source = path.read_text()
+          upstream = 'MODULE_IMPORT_NS("VFS_internal_I_am_really_a_filesystem_and_am_NOT_a_driver");'
+          android = 'MODULE_IMPORT_NS("ANDROID_GKI_VFS_internal_I_am_really_a_filesystem_and_am_NOT_a_driver");'
+          if source.count(upstream) != 1:
+              raise SystemExit(f"expected exactly one upstream VFS namespace import in {path}")
+          if source.count(android) > 1:
+              raise SystemExit(f"duplicate Android GKI VFS namespace import in {path}")
+          if android not in source:
+              source = source.replace(upstream, upstream + "\n" + android, 1)
+              path.write_text(source)
+          PY
+          }
+
+          build_variant() {
+            local project="$1" slug="$2" repository="$3" profile="$4"
+            shift 4
+            local source="$root/$slug" log="$GITHUB_WORKSPACE/out/current/logs/kernelsu-$slug-workflow.log"
+            local version commit init_file artifact extra_args
+
+            echo "::group::${project}: clone and build"
+            if ! git clone --depth 1 --filter=blob:none "https://github.com/$repository.git" "$source"; then
+              printf '%s\tclone-failed\t%s\n' "$project" "$repository" | tee -a "$summary"
+              echo "::endgroup::"
+              return 0
+            fi
+            commit=$(git -C "$source" rev-parse HEAD)
+            version=$(git -C "$source" describe --tags --exact-match 2>/dev/null || git -C "$source" rev-parse --short=12 HEAD)
+            version=$(printf '%s' "$version" | tr -c 'A-Za-z0-9._-' '-')
+            artifact="${project}-${version}-android17-6.18_kernelsu.ko"
+            init_file="$source/kernel/core/init.c"
+            mkdir -p "$(dirname "$log")"
+            if [[ ! -f "$init_file" ]] || ! patch_android_gki_vfs_namespace "$init_file"; then
+              printf '%s\tpatch-failed\t%s\t%s\n' "$project" "$version" "$commit" | tee -a "$summary"
+              echo "::endgroup::"
+              return 0
+            fi
+
+            extra_args=("$@")
+            local ksu_args=("--profile=$profile" "--output-subdir=$slug" "--artifact-name=$artifact")
+            ksu_args+=("${extra_args[@]}")
+            if make kernelsu \
+              "KERNEL_SRC=$GITHUB_WORKSPACE/src/kernel" \
+              "MSM_SRC=$GITHUB_WORKSPACE/src/msm" \
+              "VENDOR_SRC=$GITHUB_WORKSPACE/src/vendor" \
+              "MATERIALS=$GITHUB_WORKSPACE/device-materials" \
+              "TOOLCHAIN=$AUDI_CLANG_BIN" \
+              "KERNELSU_SRC=$source" \
+              "KERNELSU_ARGS=${ksu_args[*]}" 2>&1 | tee "$log"; then
+              printf '%s\tbuilt\t%s\t%s\t%s\n' "$project" "$version" "$commit" "$artifact" | tee -a "$summary"
+            else
+              printf '%s\tbuild-failed\t%s\t%s\n' "$project" "$version" "$commit" | tee -a "$summary"
+            fi
+            echo "::endgroup::"
+            return 0
+          }
+
+          build_variant BakaSU baka "Baka-SU/BakaSU" bakasu \
+            --make-variable=CONFIG_KSU_TRACEPOINT_HOOK=y \
+            --make-variable=CONFIG_KSU_MULTI_MANAGER_SUPPORT=y
+          build_variant KernelSU kernelsu "tiann/KernelSU" generic
+          build_variant SukiSU-Nova sukisu "SukiSU-Nova/SukiSU-Nova" generic
+
+          sums="$GITHUB_WORKSPACE/out/current/kernelsu/KERNELSU-SHA256SUMS.txt"
+          : > "$sums"
+          while IFS= read -r -d '' module; do
+            (cd "$(dirname "$module")" && sha256sum "$(basename "$module")") >> "$sums"
+          done < <(find "$GITHUB_WORKSPACE/out/current/kernelsu" -type f -name '*.ko' -print0 | sort -z)
+          cat "$summary"
+
+      - name: Upload KernelSU LKM builds
+        if: ${{ always() && steps.upload_images.outcome == 'success' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: audi-6.18-kernelsu-lkms
+          if-no-files-found: ignore
+          path: |
+            out/current/kernelsu/*/*.ko
+            out/current/kernelsu/*/receipt.json
+            out/current/kernelsu/*/validation.json
+            out/current/kernelsu/*/SHA256SUMS.txt
+            out/current/kernelsu/build-summary.txt
+            out/current/kernelsu/KERNELSU-SHA256SUMS.txt
+            out/current/logs/kernelsu-*.log
+
+  publish-nightly:
+    needs: build
+    if: ${{ inputs.publish_nightly && needs.build.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: write
+    concurrency:
+      group: audi-nightly-release-${{ github.repository }}
+      cancel-in-progress: false
+    steps:
+      - name: Download verified four images
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: audi-6.18-four-images
+          path: release-payload/four-images
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+      - name: Download KernelSU LKM builds
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          name: audi-6.18-kernelsu-lkms
+          path: release-payload/kernelsu
+          github-token: ${{ github.token }}
+          run-id: ${{ github.run_id }}
+      - name: Prepare optional LKM payload directory
+        if: always()
+        run: mkdir -p release-payload/kernelsu
+      - name: Publish rolling nightly prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          date_utc=$(date -u +%Y-%m-%d)
+          release_key="$date_utc-run${GITHUB_RUN_ID}-attempt${GITHUB_RUN_ATTEMPT}"
+          title="Audi 6.18 Nightly — $date_utc UTC"
+          notes="$RUNNER_TEMP/nightly-notes.md"
+          asset_dir="$RUNNER_TEMP/nightly-assets"
+          mkdir -p "$asset_dir"
+          cat > "$notes" <<EOF
+          Rolling Audi 6.18 prerelease built on $date_utc (UTC).
+
+          Includes the four verified partition images and any KernelSU-family LKM builds that passed validation. See the attached build summary for source revisions and per-variant results.
+          Workflow run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
+          EOF
+          summary=$(find release-payload/kernelsu -type f -name build-summary.txt -print -quit)
+          if [[ -n "$summary" ]]; then
+            printf '\n### KernelSU variant results\n\n```text\n' >> "$notes"
+            cat "$summary" >> "$notes"
+            printf '\n```\n' >> "$notes"
+          fi
+
+          mapfile -d '' images < <(find release-payload/four-images -type f -path '*/images/*.img' -print0 | sort -z)
+          summary=$(find release-payload/kernelsu -type f -name build-summary.txt -print -quit)
+          mapfile -d '' modules < <(find release-payload/kernelsu -type f -name '*.ko' -print0 | sort -z)
+          ((${#images[@]} == 4))
+          for image in "${images[@]}"; do
+            name=$(basename "$image")
+            cp "$image" "$asset_dir/${name%.img}-${release_key}.img"
+          done
+          for module in "${modules[@]}"; do
+            name=$(basename "$module")
+            cp "$module" "$asset_dir/${name%.ko}-${release_key}.ko"
+          done
+          if [[ -n "$summary" ]]; then
+            cp "$summary" "$asset_dir/KernelSU-build-summary-${release_key}.txt"
+          fi
+          (cd "$asset_dir" && find . -maxdepth 1 -type f \
+            \( -name '*.img' -o -name '*.ko' \) -printf '%f\0' \
+            | sort -z | xargs -0 sha256sum > "SHA256SUMS-${release_key}.txt")
+          mapfile -d '' assets < <(find "$asset_dir" -maxdepth 1 -type f -print0 | sort -z)
+          ((${#assets[@]} >= 5))
+
+          if gh release view nightly >/dev/null 2>&1; then
+            gh release edit nightly --title "$title" --notes-file "$notes" --prerelease
+            gh release upload nightly "${assets[@]}"
+            while IFS= read -r old_asset; do
+              [[ -n "$old_asset" ]] || continue
+              keep=false
+              for file in "${assets[@]}"; do
+                if [[ "$(basename "$file")" == "$old_asset" ]]; then keep=true; break; fi
+              done
+              if [[ "$keep" == false ]]; then gh release delete-asset nightly "$old_asset" --yes; fi
+            done < <(gh release view nightly --json assets --jq '.assets[].name')
+          else
+            gh release create nightly "${assets[@]}" \
+              --target "$GITHUB_SHA" \
+              --title "$title" \
+              --notes-file "$notes" \
+              --prerelease
+          fi

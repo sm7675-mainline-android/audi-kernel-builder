@@ -174,6 +174,7 @@ def _require_identity(output: Path, identity: dict[str, Any]) -> None:
 def _require_packaging_identity(
     output: Path, identity: dict[str, Any], target: Path,
     roots: dict[str, Path], manifest: dict[str, Any], *, gki_only: bool = False,
+    ignore_kernel_source_state: bool = False,
 ) -> None:
     path = output / "build-identity.json"
     if not path.is_file():
@@ -197,6 +198,16 @@ def _require_packaging_identity(
     actual_hosts = dict(actual_tools.pop("host_tools", {}))
     expected_hosts.pop("python3", None)
     actual_hosts.pop("python3", None)
+    if ignore_kernel_source_state:
+        expected_sources = expected.get("source_states")
+        actual_sources = actual.get("source_states")
+        if isinstance(expected_sources, dict) and isinstance(actual_sources, dict):
+            expected_sources = dict(expected_sources)
+            actual_sources = dict(actual_sources)
+            expected_sources.pop("kernel", None)
+            actual_sources.pop("kernel", None)
+            expected["source_states"] = expected_sources
+            actual["source_states"] = actual_sources
     hosts_match = all(expected_hosts.get(name) == value
                       for name, value in actual_hosts.items())
     if actual != expected or actual_tools != expected_tools or not hosts_match:
@@ -861,6 +872,16 @@ def parser() -> argparse.ArgumentParser:
     sub.choices["recovery"].add_argument("--recovery-base", required=True)
     sub.choices["recovery"].add_argument("--magiskboot")
     sub.choices["kernelsu"].add_argument("--kernelsu-src", required=True)
+    sub.choices["kernelsu"].add_argument(
+        "--allow-kernel-source-mismatch", action="store_true",
+        help="build against existing kernel-out artifacts when only kernel source identity differs",
+    )
+    sub.choices["kernelsu"].add_argument("--output-subdir")
+    sub.choices["kernelsu"].add_argument("--artifact-name")
+    sub.choices["kernelsu"].add_argument(
+        "--profile", choices=("bakasu", "generic"), default="bakasu",
+    )
+    sub.choices["kernelsu"].add_argument("--make-variable", action="append", default=[])
     sub.choices["check-group"].add_argument("--group-id", required=True)
     sub.choices["build-modules"].add_argument("--module", action="append", default=[],
         help="rebuild the source group owning this module; repeat for multiple modules")

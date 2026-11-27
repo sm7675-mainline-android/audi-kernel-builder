@@ -99,6 +99,8 @@ make all MATERIALS=/absolute/device-materials INCREMENTAL=1 FORGE_ARGS=--reuse-o
 
 `make kernelsu KERNELSU_SRC=/path/to/KernelSU` 以已完成的 `out/current/kernel-out` 为基础构建独立 LKM。产物位于 `out/current/kernelsu/android17-6.18_kernelsu.ko`，附带源码和构建收据及 ABI/BTF 校验结果。KernelSU 加载器通过 kallsyms 解析未导出的符号，因此 modpost 允许这类引用，每个符号仍须存在于实际的 `vmlinux` 中。已导出符号继续校验 CRC。请通过 KernelSU 管理器的自定义 LKM 选项使用该模块，或使用ksud自定义修补init_boot镜像。
 
+若只需基于现有 `kernel-out` 编译 KSU，且内核源码树身份已变化，可显式跳过该项源码身份比较：`make kernelsu KERNELSU_SRC=/path/to/KernelSU KERNELSU_ARGS=--allow-kernel-source-mismatch`。该选项只忽略内核源码树身份；工具链、配置、其他源码树、内核收据、运行时符号和 ABI/BTF 校验仍会检查。构建收据会记录此选项。可用 `--profile generic` 关闭 BakaSU 专用 Make 配置，也可用 `--output-subdir`、`--artifact-name` 和重复的 `--make-variable=CONFIG_NAME=value` 指定独立输出、文件名及 Kbuild 变量。
+
 ## 设备材料
 
 构建器从内核和模块编译输出生成镜像。两份 DLKM 的模块目录和 depmod 索引由构建阶段生成，加载顺序、模块黑名单和兼容性软依赖放在 `targets/cliffs/modules/`。设备材料目录可以是独立的 Git 仓库，包含以下文件。
@@ -119,7 +121,9 @@ bash tools/export-device-materials.sh /absolute/device-materials \
 
 ## GitHub Actions
 
-在 Actions 页面手动运行 **Build Audi 6.18**。工作流定义位于 `.github/workflows/build-audi-6.18.yml`，会检出以下仓库。
+在 Actions 页面手动运行 **Build Audi 6.18**。工作流定义位于 `.github/workflows/build-audi-6.18.yml`，会检出以下仓库。四镜像校验后先上传四镜像 artifact，再依次尝试构建 BakaSU、KernelSU、SukiSU-Nova 的 LKM；KSU 源码按项目名单独克隆，并在本地构建副本的 `kernel/core/init.c` 中补入 Android GKI VFS 命名空间导入，不会改动上游仓库。各 LKM 有单独版本化文件名、构建收据和校验结果。单个 LKM 失败不会撤回已上传的四镜像；部分或全部 LKM 失败会记录在 KSU 构建摘要中。
+
+LKM 源码仓为 `Baka-SU/BakaSU`、`tiann/KernelSU` 与 `SukiSU-Nova/SukiSU-Nova`，均从各自默认分支克隆。
 
 | 用途 | 仓库 |
 | --- | --- |
@@ -138,7 +142,7 @@ bash tools/export-device-materials.sh /absolute/device-materials \
 
 工作流在检出源码前会清理 GitHub 托管 runner 的磁盘空间。若空间仍不足，可通过 `AUDI_RUNNER` 或 `runner` 参数选择备有 `sudo` 和 `rustup` 的 Ubuntu 24.04 x64 runner，检出源码及安装工具后需至少剩余 24 GiB 空间。工作流依次运行测试、`doctor`、全量构建和四镜像校验。构建成功后自动上传四镜像、相对路径的 SHA-256 清单、构建收据和 ABI/BTF 报告，产物名为 `audi-6.18-four-images`。在已完成运行页面的 **Artifacts** 区域下载即可，无需设置上传变量。
 
-构建失败时，会单独上传编译日志及 `module-failures.json`，产物名为 `audi-6.18-build-logs`。
+手动运行时，`publish_nightly` 默认开启；完成四镜像上传后，会把四镜像和成功构建的 LKM 发布到当前仓库固定的 `nightly` 预发布版本。资产名标注 UTC 日期与运行编号，每次发布成功后清理旧资产；关闭该输入可只保留 Actions artifact。构建失败时，会单独上传编译日志及 `module-failures.json`，产物名为 `audi-6.18-build-logs`。
 
 ## 许可证
 

@@ -100,6 +100,8 @@ make all MATERIALS=/absolute/device-materials INCREMENTAL=1 FORGE_ARGS=--reuse-o
 
 `make kernelsu KERNELSU_SRC=/path/to/KernelSU` builds a separate LKM against the completed `out/current/kernel-out`. The output is `out/current/kernelsu/android17-6.18_kernelsu.ko`, with source and build receipts and ABI/BTF validation. The KernelSU loader resolves non-exported symbols through kallsyms, so modpost permits their use if each symbol exists in the actual `vmlinux`. Exported symbols still undergo CRC checks. Select the custom LKM in KernelSU Manager or use `ksud` to patch an `init_boot` image with the custom module.
 
+To build KSU against existing `kernel-out` artifacts after the kernel source identity changes, explicitly allow that one mismatch: `make kernelsu KERNELSU_SRC=/path/to/KernelSU KERNELSU_ARGS=--allow-kernel-source-mismatch`. This skips only the kernel source-tree identity comparison; toolchain, config, other source trees, kernel receipt, runtime-symbol, ABI, and BTF checks remain enabled. The build receipt records the override. Use `--profile generic` to omit BakaSU-specific Make options, and `--output-subdir`, `--artifact-name`, and repeatable `--make-variable=CONFIG_NAME=value` to select separate output paths, artifact names, and Kbuild variables.
+
 ## Device materials
 
 The builder packages images from compiled kernel and module outputs. It generates the module trees and depmod indexes for both DLKM partitions. Ordered module lists, blocklists, and compatibility soft dependencies live in `targets/cliffs/modules/`. A separate device materials repository can contain the following files.
@@ -120,7 +122,9 @@ The script prints a candidate lock for comparison. Review the differences before
 
 ## GitHub Actions
 
-Run **Build Audi 6.18** manually from the Actions tab. The workflow in `.github/workflows/build-audi-6.18.yml` checks out the repositories below.
+Run **Build Audi 6.18** manually from the Actions tab. The workflow in `.github/workflows/build-audi-6.18.yml` checks out the repositories below. After verifying and uploading the four images, it attempts LKM builds for BakaSU, KernelSU, and SukiSU-Nova sequentially. Each project is cloned separately and its local `kernel/core/init.c` build copy receives the Android GKI VFS namespace import; no upstream repository is modified. LKMs have project/version-specific filenames, receipts, and validation reports. An LKM failure does not affect the already-uploaded four-image artifact and is recorded in the KSU build summary.
+
+The LKM sources are `Baka-SU/BakaSU`, `tiann/KernelSU`, and `SukiSU-Nova/SukiSU-Nova`, cloned from each repository's default branch.
 
 | Purpose | Repository |
 | --- | --- |
@@ -139,7 +143,7 @@ The workflow downloads `clang-r584948` from the `android17-release` branch of Go
 
 The workflow frees space on GitHub-hosted runners before checking out the sources. If more space is needed, use `AUDI_RUNNER` or the `runner` input to select an Ubuntu 24.04 x64 runner with `sudo`, `rustup`, and at least 24 GiB free after checkout and tool setup. The workflow runs the tests, `doctor`, the full build, and four-image verification. Successful builds automatically upload the four images, a SHA-256 manifest with relative paths, build receipts, and ABI/BTF reports as the `audi-6.18-four-images` artifact. Download it from the completed run's **Artifacts** section; no upload variable is required.
 
-Failed builds upload compilation logs and `module-failures.json` as the `audi-6.18-build-logs` artifact.
+The `publish_nightly` workflow input is enabled by default. After image upload, successful images and LKMs are published to the rolling `nightly` prerelease in the repository where the workflow runs. Asset names include the UTC date and run number; old assets are removed only after the new set uploads successfully. Disable the input to keep the build as Actions artifacts only. Failed builds upload compilation logs and `module-failures.json` as the `audi-6.18-build-logs` artifact.
 
 ## License
 

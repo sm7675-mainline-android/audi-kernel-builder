@@ -1327,6 +1327,22 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(system.command, "system-dlkm")
         self.assertEqual(system.materials, "/inputs/device-materials")
 
+    def test_kernelsu_accepts_explicit_kernel_source_mismatch(self) -> None:
+        args = parser().parse_args([
+            "kernelsu", "--kernelsu-src", "/src/KernelSU",
+            "--allow-kernel-source-mismatch",
+            "--profile", "generic",
+            "--output-subdir", "official",
+            "--artifact-name", "KernelSU-v1-android17.ko",
+            "--make-variable", "CONFIG_KSU_DEBUG=n",
+        ])
+
+        self.assertTrue(args.allow_kernel_source_mismatch)
+        self.assertEqual(args.profile, "generic")
+        self.assertEqual(args.output_subdir, "official")
+        self.assertEqual(args.artifact_name, "KernelSU-v1-android17.ko")
+        self.assertEqual(args.make_variable, ["CONFIG_KSU_DEBUG=n"])
+
     def test_packaging_accepts_legacy_identity_without_a_source_lock_file(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             output = Path(temp)
@@ -1341,6 +1357,44 @@ class PipelineTests(unittest.TestCase):
             with self.assertRaisesRegex(PipelineError, "kernel build inputs changed"):
                 _require_packaging_identity(output, changed, output / "target.toml", {}, {},
                                             gki_only=True)
+
+    def test_kernelsu_can_ignore_only_kernel_source_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp)
+            previous = {
+                "source_states": {
+                    "kernel": {"revision": "built-from"},
+                    "msm": {"revision": "same-msm"},
+                    "vendor": {"revision": "same-vendor"},
+                },
+                "toolchain": {"clang": "same-clang"},
+            }
+            (output / "build-identity.json").write_text(json.dumps(previous))
+            changed_kernel = {
+                "source_states": {
+                    "kernel": {"revision": "current-tree"},
+                    "msm": {"revision": "same-msm"},
+                    "vendor": {"revision": "same-vendor"},
+                },
+                "toolchain": {"clang": "same-clang"},
+            }
+
+            with self.assertRaisesRegex(PipelineError, "kernel build inputs changed"):
+                _require_packaging_identity(
+                    output, changed_kernel, output / "target.toml", {}, {}, gki_only=True,
+                )
+            _require_packaging_identity(
+                output, changed_kernel, output / "target.toml", {}, {}, gki_only=True,
+                ignore_kernel_source_state=True,
+            )
+
+            changed_vendor = json.loads(json.dumps(changed_kernel))
+            changed_vendor["source_states"]["vendor"]["revision"] = "different-vendor"
+            with self.assertRaisesRegex(PipelineError, "kernel build inputs changed"):
+                _require_packaging_identity(
+                    output, changed_vendor, output / "target.toml", {}, {}, gki_only=True,
+                    ignore_kernel_source_state=True,
+                )
 
     def test_check_group_is_a_diagnostic_stage(self) -> None:
         args = parser().parse_args([

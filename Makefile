@@ -21,6 +21,7 @@ MODULES ?=
 KERNELSU_SRC ?= $(CURDIR)/src/KernelSU
 INCREMENTAL ?= 0
 FORGE_ARGS ?=
+KERNELSU_ARGS ?=
 
 BASE_ARGS = --target "$(TARGET)" --out "$(OUT)" \
 	--kernel-src "$(KERNEL_SRC)" --msm-src "$(MSM_SRC)" \
@@ -61,7 +62,7 @@ build-modules:
 	$(PYTHON) $(FORGE) $(BASE_ARGS) $(FORGE_ARGS) build-modules $(foreach module,$(MODULES),--module $(module)) $(if $(filter 1,$(INCREMENTAL)),--incremental,)
 
 kernelsu:
-	$(PYTHON) $(FORGE) $(BASE_ARGS) $(FORGE_ARGS) kernelsu --kernelsu-src "$(KERNELSU_SRC)"
+	$(PYTHON) $(FORGE) $(BASE_ARGS) $(FORGE_ARGS) kernelsu --kernelsu-src "$(KERNELSU_SRC)" $(KERNELSU_ARGS)
 
 check-group:
 	@test -n "$(GROUP_ID)" || (echo "GROUP_ID is required" >&2; exit 2)
